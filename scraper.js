@@ -66,6 +66,7 @@ const scrapeGoogleMapsTitlesAndHref = async (query) => {
     });
 
     // Scroll until all results are loaded
+    let data = [];
     let lastHeight = 0;
     let currentHeight = 0;
     const SCROLL_INTERVAL = 500;
@@ -97,6 +98,20 @@ const scrapeGoogleMapsTitlesAndHref = async (query) => {
         }, sidebarSelector);
       }
 
+      // Extract data with error handling
+      const newData = await page.evaluate(() => {
+        const elements = document.getElementsByClassName("hfpxzc");
+        return Array.from(elements)
+          .map((element) => ({
+            title: element.getAttribute("aria-label"),
+            href: element.getAttribute("href"),
+          }))
+          .filter((item) => item.title && item.href);
+      });
+
+      // Combine new data with existing data, removing duplicates
+      data = [...new Set([...data, ...newData])];
+
       // Check if we've reached the end of the list
       const endOfListFound = await page.evaluate(() => {
         return document.documentElement.outerHTML.includes(
@@ -109,17 +124,6 @@ const scrapeGoogleMapsTitlesAndHref = async (query) => {
         break;
       }
     }
-
-    // Extract data with error handling
-    const data = await page.evaluate(() => {
-      const elements = document.getElementsByClassName("hfpxzc");
-      return Array.from(elements)
-        .map((element) => ({
-          title: element.getAttribute("aria-label"),
-          href: element.getAttribute("href"),
-        }))
-        .filter((item) => item.title && item.href);
-    });
 
     return data;
 
