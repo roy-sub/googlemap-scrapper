@@ -11,9 +11,9 @@ const scrapeGoogleMapsTitlesAndHref = async (query) => {
         "--no-sandbox",
         "--single-process",
         "--no-zygote",
-        "--disable-dev-shm-usage", // Add this to avoid memory issues
-        "--disable-gpu",           // Disable GPU hardware acceleration
-        "--disable-extensions",    // Disable extensions to reduce overhead
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-extensions",
       ],
       executablePath:
         process.env.NODE_ENV === "production"
@@ -31,7 +31,6 @@ const scrapeGoogleMapsTitlesAndHref = async (query) => {
     // Optimize page performance
     await page.setRequestInterception(true);
     page.on('request', (request) => {
-      // Block unnecessary resources
       const blockedResources = ['image', 'stylesheet', 'font', 'media'];
       if (blockedResources.includes(request.resourceType())) {
         request.abort();
@@ -47,7 +46,7 @@ const scrapeGoogleMapsTitlesAndHref = async (query) => {
     while (retries > 0) {
       try {
         await page.goto(url, { 
-          waitUntil: "networkidle2", // Changed from networkidle0 to networkidle2 for faster load
+          waitUntil: "networkidle2",
           timeout: 60000 
         });
         break;
@@ -66,45 +65,49 @@ const scrapeGoogleMapsTitlesAndHref = async (query) => {
       visible: true 
     });
 
-    // Modified scrolling logic with better timeout handling
+    // Scroll until all results are loaded
+    let lastHeight = 0;
+    let currentHeight = 0;
+    const SCROLL_INTERVAL = 500;
+    const SCROLL_TIMEOUT = 180000; // 3 minutes total scroll timeout
     const startTime = Date.now();
-    let previousHeight = 0;
-    let consecutiveSameHeight = 0;
-    const SCROLL_TIMEOUT = 90000; // 90 seconds total scroll timeout
-    
+
     while (true) {
       if (Date.now() - startTime > SCROLL_TIMEOUT) {
-        console.log("Scroll timeout reached after 90 seconds");
+        console.log("Scroll timeout reached after 3 minutes");
         break;
       }
 
-      const sidebar = await page.$(sidebarSelector);
-      const currentHeight = await page.evaluate((el) => el.scrollHeight, sidebar);
+      currentHeight = await page.evaluate((selector) => {
+        const element = document.querySelector(selector);
+        return element.scrollHeight;
+      }, sidebarSelector);
 
-      if (currentHeight === previousHeight) {
-        consecutiveSameHeight++;
-        if (consecutiveSameHeight >= 3) { // Reduced from 5 to 3 for faster completion
-          console.log("Reached the end of the list");
-          break;
-        }
-      } else {
-        consecutiveSameHeight = 0;
-      }
-
-      // Smoother scrolling with error handling
-      try {
-        await page.evaluate(async (selector) => {
+      // Scroll down until the height stops increasing
+      while (currentHeight > lastHeight) {
+        lastHeight = currentHeight;
+        await page.evaluate((selector) => {
           const element = document.querySelector(selector);
-          element.scrollBy(0, 300);
-          await new Promise((resolve) => setTimeout(resolve, 300));
+          element.scrollBy(0, 400);
         }, sidebarSelector);
-      } catch (error) {
-        console.log("Scroll error, continuing to data extraction:", error.message);
-        break;
+        await new Promise((resolve) => setTimeout(resolve, SCROLL_INTERVAL));
+        currentHeight = await page.evaluate((selector) => {
+          const element = document.querySelector(selector);
+          return element.scrollHeight;
+        }, sidebarSelector);
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      previousHeight = currentHeight;
+      // Check if we've reached the end of the list
+      const endOfListFound = await page.evaluate(() => {
+        return document.documentElement.outerHTML.includes(
+          "You've reached the end of the list"
+        );
+      });
+
+      if (endOfListFound) {
+        console.log("Found end of list message");
+        break;
+      }
     }
 
     // Extract data with error handling
@@ -115,7 +118,7 @@ const scrapeGoogleMapsTitlesAndHref = async (query) => {
           title: element.getAttribute("aria-label"),
           href: element.getAttribute("href"),
         }))
-        .filter((item) => item.title && item.href); // Added href check
+        .filter((item) => item.title && item.href);
     });
 
     return data;
